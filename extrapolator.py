@@ -10,59 +10,73 @@ from tensorflow.keras.losses import Huber
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
+from tensorflow.keras.utils import Sequence
+
+class Generator(Sequence):
+  def __init__(self, datapieces, coords, length, batch_size):
+    self.data_piece = datapieces
+    self.coords_input = coords
+    self.length = length
+    self.batch_size = batch_size
 
 
-def generateData(trainDataFolder, drop=[], testRatio=0.1):
-  loc_input = pd.read_csv(f"{trainDataFolder}/location_input.csv", index_col=0)
-  loc_output = pd.read_csv(f"{trainDataFolder}/location_output.csv", index_col=0)
+  def on_epoch_end(self):
+    pass
+
+
+  def __len__(self):
+    return self.length
+
+
+  def __getitem__(self, x):
+    batch_idxs = np.random.choice(len(self.data_piece), self.batch_size)
+    X = []
+    y = []
+    for batchId in batch_idxs:
+      data_piece = self.data_piece[batchId]
+      coords = self.coords_input
+      while True:
+        idxs = np.random.choice(71, 9, replace=False)
+        if np.isnan(data_piece[idxs[-1]]):
+          batchId = np.random.choice(len(self.data_piece))
+          data_piece = self.data_piece[batchId]
+          continue
+        break
+      x = []
+      p = data_piece[idxs[-1]]
+      for k, idx in enumerate(idxs):
+        if k < 8:
+          x.append(data_piece[idx])
+        x.extend(coords[idx])
+      X.append(x)
+      y.append(p)
+    X = np.nan_to_num(X, nan=-1)
+    y = np.array(y)
+    return X, y
+
+
+
+def generateData(trainDataFolder, drop=[]):
+  loc_input = pd.read_csv(f"{trainDataFolder}/air/location.csv", index_col=0)
+  # loc_output = pd.read_csv(f"{trainDataFolder}/location_output.csv", index_col=0)
   stations = []
-  locations = []
   coords_input = []
-  coords_output = []
   for i in range(len(loc_input)):
-    stations.append(pd.read_csv(f"{trainDataFolder}/input/{loc_input['station'][i]}.csv", index_col=0))
-    coords_input.append((loc_input["longitude"][i], loc_input["latitude"][i]))
-  
-  for i in range(len(loc_output)):
-    if i in drop:
-      continue
-    locations.append(pd.read_csv(f"{trainDataFolder}/output/{loc_output['station'][i]}.csv", index_col=0))
-    coords_output.append((loc_output["longitude"][i], loc_output["latitude"][i]))
+    stations.append(pd.read_csv(f"{trainDataFolder}/air/{loc_input['location'][i]}.csv", index_col=0))
+    coords_input.append((loc_input["longitude"][i]-105.8, loc_input["latitude"][i]-21))
 
   X = []
   y = []
   
-  for i in range((9000)):
+  datapieces = []
+  for i in tqdm(range((6000))):
     data_piece = []
-    for station in stations:
+    for j, station in enumerate(stations):
       data_piece.append(station["PM2.5"][i])
-    data_piece.extend((0, 0))
-    coords = []
-    labels = []
-    for j, dp in enumerate(data_piece[:-2]):
-      if np.isnan(dp):
-        continue
-      coords.append(coords_input[j])
-      labels.append(dp)
-    
-    for j in range(len(coords_output)):
-      t = locations[j]["PM2.5"][i]
-      if np.isnan(t):
-        continue
-      coords.append(coords_output[j])
-      labels.append(t)
-    for coord, label in zip(coords, labels):
-      data_piece[-2:] = coord
-      X.append(data_piece.copy())
-      y.append(label)
-      
-  X = np.nan_to_num(X, nan=-1)
-  y = np.nan_to_num(y, nan=-1)
-  X[:,-2] = 10*(X[:,-2] - 105.8)
-  X[:,-1] = 10*(X[:,-1] - 21)
-  
-  X_tr, X_t, y_tr, y_t = train_test_split(X, y, test_size=testRatio)
-  return X_tr, y_tr, X_t, y_t
+    datapieces.append(data_piece)
+
+  return datapieces, coords_input
 
 
 def dataAugment(X_tr, Y_tr, mask_rate, rate, strength, pools=1):
@@ -80,38 +94,38 @@ def dataAugment(X_tr, Y_tr, mask_rate, rate, strength, pools=1):
     delta[mask2] = 0
     augX += delta
     augX[mask] = -1
-    mask2[mask] = 0
     X_tr = np.concatenate((X_tr, augX))
     Y_tr = np.concatenate((Y_tr, augY))
   return X_tr, Y_tr
 
 
 def getModel(lr=0.001):
-  input_layer = Input(shape=(13,))
-  x = Dense(128, activation='relu')(input_layer)
-  x1 = Dense(256, activation='relu')(x)
+  input_layer = Input(shape=(26,))
+  x = Dense(1024, activation='relu')(input_layer)
+  x1 = Dense(1024, activation='relu')(x)
   x2 = Concatenate()([x, x1])
-  x2 = Dense(256, activation='relu')(x2)
-  x3 = Dense(256, activation='relu')(x2)
-  x4 = Dense(256, activation='relu')(x3)
-  x4 = Dense(256, activation='relu')(x4)
-  x4 = Dense(256, activation='relu')(x4)
+  x2 = Dense(1024, activation='relu')(x2)
+  x3 = Dense(1024, activation='relu')(x2)
+  x3 = Dense(1024, activation='relu')(x3)
+  x4 = Dense(1024, activation='relu')(x3)
+  x4 = Dense(1024, activation='relu')(x4)
+  x4 = Dense(1024, activation='relu')(x4)
+  x4 = Dense(1024, activation='relu')(x4)
+  x4 = Dense(1024, activation='relu')(x4)
   x5 = Add()([x3, x4])
-  x5 = Dense(256, activation='relu')(x5)
-  x5 = Dense(256, activation='relu')(x5)
+  x5 = Dense(1024, activation='relu')(x5)
+  x5 = Dense(1024, activation='relu')(x5)
   x6 = Add()([x2, x5])
-  x6 = Dense(256, activation='relu')(x6)
-  x6 = Dense(128, activation='relu')(x6)
+  x6 = Dense(512, activation='relu')(x6)
+  x6 = Dense(512, activation='relu')(x6)
   y = Dense(1)(x6)
   model = Model(inputs=[input_layer], outputs=y)
   model.compile(optimizer=Adam(learning_rate=lr), loss='huber', metrics=['mae', 'mape'])
+  model.summary()
   return model
 
 
-def evaluate(model, X_test, y_test):
-  if len(X_test) == 0:
-    print("No data to evaluate")
-    return
+def evaluate(model, generator):
   lossF = Huber()
   y_pred = model.predict(X_test).flatten()
   loss = lossF(y_test, y_pred)
@@ -123,23 +137,32 @@ def evaluate(model, X_test, y_test):
   print("mdape:", np.median(ape)*100)
 
 
+def normalize(X, mean=None, std=None):
+  X_out = X.copy()
+
+  if mean is None and std is None:
+    mean = np.nanmean(X_out, axis=0)
+    std = np.nanstd(X_out, axis=0)
+    X_out = (X_out - mean) / std
+    return X_out, mean, std
+
+  X_out = (X_out - mean) / std
+  return X_out
+
+
 def main(args):
-  drop = []
-  p = 1
-  for i in range(11):
-    if (args.drop_mask & p) != 0:
-      drop.append(i)
-    p *= 2
   print("Initializing...")
-  X_train, y_train, X_test, y_test = generateData(args.train_path, drop=drop, testRatio=args.test_rate)
-  X_tr, y_tr = dataAugment(X_train, y_train, mask_rate=args.augment_mask_rate, rate=args.augment_rate, strength=args.augment_strength, pools=args.augment_pools)
+  datapieces, coords = generateData(args.train_path, drop=[])
+  trainGen = Generator(datapieces, coords, 100000, args.batch_size)
+  valGen = Generator(datapieces, coords, 100, args.batch_size)
+  testGen = Generator(datapieces, coords, 100, args.batch_size)
 
   print("Training...")
   model = getModel(lr=args.learning_rate)
-  model.fit(X_tr, y_tr, batch_size=args.batch_size, epochs=args.epochs, validation_split=args.validation_split)
+  model.fit(trainGen, epochs=args.epochs, validation_data=valGen, validation_steps=len(valGen))
 
-  print("Evaluating...")
-  evaluate(model, X_test, y_test)
+  # print("Evaluating...")
+  # evaluate(model, testGen)
 
   if not os.path.exists("weights"):
     os.mkdir("weights")
@@ -153,16 +176,12 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument("--train-path", type=str, default="./data/data-train", help="Path of the training data folder (default: in the sample folder of this fil)")
   parser.add_argument("--test-rate", type=float, default=0.1, help="Ratio of the test dataset for evaluating (default: 0.1)")
-  parser.add_argument("--augment-rate", type=float, default=0.6, help="Rate at which the data are augmented by noise for one run (default: 0.6)")
-  parser.add_argument("--augment-mask-rate", type=float, default=0.01, help="Rate at which the station data are masked (default: 0.01)")
-  parser.add_argument("--augment-strength", type=float, default=2, help="Standard deviation of the uniform noise added to the augmented data (default: 2)")
-  parser.add_argument("--augment-pools", type=int, default=5, help="Number of times apply augmentation to the data (default: 5)")
   parser.add_argument("--learning-rate", type=float, default=0.001, help="Learning rate of the forecaster (default: 0.001)")
-  parser.add_argument("--epochs", type=int, default=15, help="Number of epochs to train(default: 15)")
+  parser.add_argument("--epochs", type=int, default=3, help="Number of epochs to train(default: 3)")
   parser.add_argument("--verbose", type=bool, default=True, help="Whether viewing the training process or not (default: True)")
-  parser.add_argument("--batch-size", type=int, default=32, help="Batch size for a single training step (default: 32)")
+  parser.add_argument("--batch-size", type=int, default=128, help="Batch size for a single training step (default: 128)")
   parser.add_argument("--validation-split", type=float, default=0.1, help="Validation set ratio (default: 0.1)")
-  parser.add_argument("--drop-mask", type=int, default=0, help="(Advanced) Bitmask indicating which stations will be excluded from data. (default: 0 - nomask)")
+  # parser.add_argument("--drop-mask", type=int, default=0, help="(Advanced) Bitmask indicating which stations will be excluded from data. (default: 0 - nomask)")
   args = parser.parse_args()
   main(args)
   

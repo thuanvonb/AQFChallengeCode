@@ -51,44 +51,49 @@ class WeightedLoss(tf.keras.losses.Loss):
     return tf.reduce_mean(tf.reduce_sum(tf.reduce_mean(err, axis=-1)*self.weights, axis=-1))
 
 
-
-def getModel(lr=0.001, wl_sample_weight=0.008):
-  input_layer = Input(shape=(None, 6))
-  x1 = Dense(128, activation='relu')(input_layer)
-  x2 = GRU(200, return_sequences=True)(x1)
+def getModel2(lr=0.001, wl_sample_weight=0.008):
+  x = Input(shape=(None, 11))
+  x1 = Dense(256, activation='relu')(x)
+  x2 = Concatenate()([x, x1])
   x2 = Dense(256, activation='relu')(x2)
   x3 = Dense(256, activation='relu')(x2)
-  x3 = Concatenate()([x2, x3])
+  x3 = GRU(200, return_sequences=True)(x3)
   x3 = Dense(256, activation='relu')(x3)
-  x3 = Dense(128, activation='relu')(x3)
-  x4 = Add()([x1, x3])
-  x4 = Dense(128, activation='relu')(x4)
-  x4 = Dense(64, activation='relu')(x4)
-  y = Dense(3)(x4)
-  model = Model(inputs=[input_layer], outputs=y)
-  model.compile(optimizer=Adam(learning_rate=lr), loss=WeightedLoss(2, wl_sample_weight, 24, 23), \
+  x4 = Add()([x2, x3])
+  x4 = Dense(256, activation='relu')(x4)
+  x5 = Dense(256, activation='relu')(x4)
+  x5 = GRU(200, return_sequences=True)(x5)
+  x5 = Dense(256, activation='relu')(x5)
+  x6 = Add()([x4, x5])
+  x6 = Dense(256, activation='relu')(x6)
+  x7 = Dense(256, activation='relu')(x6)
+  y = Dense(3)(x7)
+  model = Model(inputs=[x], outputs=y)
+  model.compile(optimizer=Adam(learning_rate=lr), loss=WeightedLoss(2, wl_sample_weight, 24, 23),\
                 metrics=['mae', 'mape'])
   return model
 
 
-def createData(name, ts=24, fc=24):
-  csv = pd.read_csv(name, usecols=['timestamp', 'PM2.5', 'humidity', 'temperature'])
-  csv["timestamp"] = pd.to_datetime(csv["timestamp"], format="%d/%m/%Y %H:%M").apply(lambda x: x.hour)
-  csv["time_sin"] = csv["timestamp"].apply(lambda x: np.sin(x*np.pi/12))
-  csv["time_cos"] = csv["timestamp"].apply(lambda x: -np.cos(x*np.pi/12))
+def createData(name, meteoData, ts=24, fc=24):
+  csv = pd.read_csv(name, usecols=['time', 'PM2.5', 'humidity', 'temperature'])
+  csv["time"] = pd.to_datetime(csv["time"], format="%Y-%m-%d %H:%M:%S").apply(lambda x: x.hour)
+  csv["time_sin"] = csv["time"].apply(lambda x: np.sin(x*np.pi/12))
+  csv["time_cos"] = csv["time"].apply(lambda x: -np.cos(x*np.pi/12))
   csv["n1"] = np.ones(len(csv))*-1
-  data = csv.drop(["timestamp"], axis=1).to_numpy()
+  data = csv.drop(["time"], axis=1).to_numpy()
   n = len(data)
   X = []
   Y = []
   for i in range(n):
     if i + ts + fc > n:
       break
-    x = data[i:i+ts, :6]
-    zeros = np.zeros((fc-1, 6))
-    zeros[:,3] = data[i+ts:i+ts+fc-1,3]
-    zeros[:,4] = data[i+ts:i+ts+fc-1,4]
-    zeros[:,5] = 1
+    x1 = data[i:i+ts, :6]
+    x2 = meteoData[i:i+ts]
+    x = np.concatenate([x2, x1], axis=1)
+    zeros = np.zeros((fc-1, 11))
+    zeros[:,8] = data[i+ts:i+ts+fc-1,3]
+    zeros[:,9] = data[i+ts:i+ts+fc-1,4]
+    zeros[:,10] = 1
     x = np.concatenate((x, zeros), axis=0)
     y = data[i+1:i+ts+fc, :3]
     if verifyNaN(x) and verifyNaN(y):
@@ -100,17 +105,23 @@ def createData(name, ts=24, fc=24):
 
 
 def bigDataset(trainPath, timestampSize=24, forecastCapacity=24, test_rate=0.1): 
-  training = os.listdir(f"{trainPath}/input/")
-  training.extend(os.listdir(f"{trainPath}/output/"))
+  meteoData = pd.read_csv(f"{trainPath}/meteo/station_86.csv", index_col=0).drop(["time"], axis=1).to_numpy()
+  x = []
+  for i in range(3):
+    k = meteoData[:-1]*(3-i)/3 + meteoData[1:]*i/3
+    x.append(np.expand_dims(k, axis=1))
+  meteoData = np.concatenate(x, axis=1).reshape((-1, 5))
+
+  training = os.listdir(f"{trainPath}/air/")
+  del training[training.index("location.csv")]
+  # training.extend(os.listdir(f"{trainPath}/output/"))
   X_train = []
   Y_train = []
   X_test = []
   Y_test = []
   for i, trainingFile in enumerate(training):
-    filePath = f"{trainPath}/input/"
-    if i > 10:
-      filePath = f"{trainPath}/output/"
-    X, Y = createData(filePath + trainingFile, timestampSize, forecastCapacity)
+    filePath = f"{trainPath}/air/"
+    X, Y = createData(filePath + trainingFile, meteoData, timestampSize, forecastCapacity)
     n = len(X)
     tId = int(n * (1-test_rate))
     X_test.append(X[tId:])
@@ -134,7 +145,7 @@ def dataAugment(X, Y, rate, strength, pools=1):
     mask = np.random.random(aug.shape) < rate
     delta = np.random.uniform(-t, t, aug.shape)
     delta[mask] = 0
-    delta[:,:,3:] = 0
+    delta[:,:,8:] = 0
     delta[:,24:,:] = 0
 
     aug += delta
@@ -147,12 +158,12 @@ def normalize(X, mean=None, std=None):
   X_out = X.copy()
 
   if mean is None and std is None:
-    mean = np.mean(np.mean(X_out[:,:24,:3], axis=1), axis=0)
-    std = np.std(np.std(X_out[:,:24,:3], axis=1), axis=0)
-    X_out[:,:24,:3] = (X_out[:,:24,:3] - mean) / std
+    mean = np.mean(np.mean(X_out[:,:24,:-3], axis=1), axis=0)
+    std = np.std(np.std(X_out[:,:24,:-3], axis=1), axis=0)
+    X_out[:,:24,:-3] = (X_out[:,:24,:-3] - mean) / std
     return X_out, mean, std
 
-  X_out[:,:24,:3] = (X_out[:,:24,:3] - mean) / std
+  X_out[:,:24,:-3] = (X_out[:,:24,:-3] - mean) / std
   return X_out
 
 
@@ -184,12 +195,15 @@ def evaluate(model, X_t, y_t):
 
 def main(args):
   print("Initializing...")
-  model = getModel(args.learning_rate, args.wl_sample_weight)
   X_tr, y_tr, X_t, y_t = bigDataset(args.train_path, test_rate=args.test_rate)
-  X_tr, y_tr = dataAugment(X_tr, y_tr, rate=args.augment_rate, strength=args.augment_strength, pools=args.augment_pools)
+  print("Data collected:", (X_tr.shape[0] + X_t.shape[0]))
+  print("Data used for training (before augmented):", X_tr.shape[0])
   X_tr, mean_tr, std_tr = normalize(X_tr)
   X_t = normalize(X_t, mean_tr, std_tr)
+  X_tr, y_tr = dataAugment(X_tr, y_tr, rate=args.augment_rate, strength=args.augment_strength, pools=args.augment_pools)
+  print("Data used for training (after augmented):", X_tr.shape[0])
 
+  model = getModel2(args.learning_rate, args.wl_sample_weight)
   train(model, X_tr, y_tr, epochs=args.epochs, verbose=args.verbose, batch_size=args.batch_size, validation_split=args.validation_split)
   evaluate(model, X_t, y_t)
 
@@ -208,7 +222,7 @@ if __name__ == '__main__':
   parser.add_argument("--train-path", type=str, default="./data/data-train", help="Path of the training data folder (default: in the sample folder of this fil)")
   parser.add_argument("--test-rate", type=float, default=0.1, help="Ratio of the test dataset for evaluating (default: 0.1)")
   parser.add_argument("--augment-rate", type=float, default=0.3, help="Rate at which the data are augmented by noise for one run (default: 0.3)")
-  parser.add_argument("--augment-strength", type=float, default=2, help="Standard deviation of the uniform noise added to the augmented data (default: 2)")
+  parser.add_argument("--augment-strength", type=float, default=0.1, help="Standard deviation of the uniform noise added to the augmented data (default: 0.1)")
   parser.add_argument("--augment-pools", type=int, default=7, help="Number of times apply augmentation to the data (default: 7)")
   parser.add_argument("--learning-rate", type=float, default=0.001, help="Learning rate of the forecaster (default: 0.001)")
   parser.add_argument("--epochs", type=int, default=1, help="Number of epochs to train (1-3 epochs are recommended) (default: 1)")
@@ -218,4 +232,6 @@ if __name__ == '__main__':
   parser.add_argument("--wl-sample-weight", type=float, default=0.008, help="(Advanced) Weight of the loss of the sample data part for RNN contributing to the whole training loss (must be between 0 and 0.02, exclusive) (default: 0.008)")
   args = parser.parse_args()
   main(args)
+  # model = getModel2(args.learning_rate, args.wl_sample_weight)
+  # model.summary()
   
