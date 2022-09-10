@@ -39,7 +39,7 @@ pip install -r requirements.txt
 ```
 
 - Chạy một lần:
-    + __Để tiện việc chấm bài, cả 3 lệnh giới thiệu dưới đây đã được gói lại trong 1 file bash là `run.sh`, chạy lệnh `bash run.sh` để chạy cùng lúc cả 3 lệnh thay vì chạy từng lệnh một như ở bên dưới.__
+    + __Để thuận tiện, cả 3 lệnh giới thiệu dưới đây đã được gói lại trong 1 file bash là `run.sh`, chạy lệnh `bash run.sh` để chạy cùng lúc cả 3 lệnh thay vì chạy từng lệnh một như ở bên dưới.__
 
 - Chạy từng lệnh:
     - Chạy 2 file dùng để train model:
