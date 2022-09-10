@@ -9,6 +9,7 @@ import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Dense, GRU, Input, Concatenate, Add
 from tensorflow.keras.optimizers import Adam
+from tqdm import tqdm
 
 
 def verifyNaN(d):
@@ -33,7 +34,7 @@ class WeightedLoss(tf.keras.losses.Loss):
     c = 1/t - (self.windowLength-1)
     f = lambda x: (1 - np.power(x, self.offsetLength+1))/(1 - x) - c
     df = lambda x: (self.offsetLength*np.power(x, self.offsetLength+1) - \
-                    (self.offsetLength+1)*np.power(x, self.offsetLength) + 1) / np.power(x - 1, 2)
+                   (self.offsetLength+1)*np.power(x, self.offsetLength) + 1) / np.power(x - 1, 2)
     sample = 1.3
     while True:
       v = f(sample)
@@ -119,7 +120,7 @@ def bigDataset(trainPath, timestampSize=24, forecastCapacity=24, test_rate=0.1):
   Y_train = []
   X_test = []
   Y_test = []
-  for i, trainingFile in enumerate(training):
+  for i, trainingFile in tqdm(enumerate(training)):
     filePath = f"{trainPath}/air/"
     X, Y = createData(filePath + trainingFile, meteoData, timestampSize, forecastCapacity)
     n = len(X)
@@ -138,7 +139,7 @@ def bigDataset(trainPath, timestampSize=24, forecastCapacity=24, test_rate=0.1):
 def dataAugment(X, Y, rate, strength, pools=1):
   t = strength*np.sqrt(12)/2
   n = X.shape[0]
-  for i in range(pools):
+  for i in tqdm(range(pools)):
     idx = np.random.choice(n, int(n*rate), replace=False)
     aug = X[idx].copy()
     augY = Y[idx].copy()
@@ -194,15 +195,17 @@ def evaluate(model, X_t, y_t):
 
 
 def main(args):
-  print("Initializing...")
+  print("Forecaster operating...")
+  print("--------------------------------------------------------")
+  print("Initializing data...")
   X_tr, y_tr, X_t, y_t = bigDataset(args.train_path, test_rate=args.test_rate)
   print("Data collected:", (X_tr.shape[0] + X_t.shape[0]))
   print("Data used for training (before augmented):", X_tr.shape[0])
   X_tr, mean_tr, std_tr = normalize(X_tr)
   X_t = normalize(X_t, mean_tr, std_tr)
+  print("Augmenting data...")
   X_tr, y_tr = dataAugment(X_tr, y_tr, rate=args.augment_rate, strength=args.augment_strength, pools=args.augment_pools)
   print("Data used for training (after augmented):", X_tr.shape[0])
-
   model = getModel2(args.learning_rate, args.wl_sample_weight)
   train(model, X_tr, y_tr, epochs=args.epochs, verbose=args.verbose, batch_size=args.batch_size, validation_split=args.validation_split)
   evaluate(model, X_t, y_t)
@@ -215,11 +218,12 @@ def main(args):
   model.save_weights("weights/forecaster.h5")
   print("Weights saved in weights/forecaster.h5")
   np.savez("paras/forecaster", mean=mean_tr, std=std_tr)
+  print("Forecaster terminated\n")
 
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
-  parser.add_argument("--train-path", type=str, default="./data/data-train", help="Path of the training data folder (default: in the sample folder of this fil)")
+  parser.add_argument("--train-path", type=str, default="./train", help="Path of the training data folder (default: ./train)")
   parser.add_argument("--test-rate", type=float, default=0.1, help="Ratio of the test dataset for evaluating (default: 0.1)")
   parser.add_argument("--augment-rate", type=float, default=0.3, help="Rate at which the data are augmented by noise for one run (default: 0.3)")
   parser.add_argument("--augment-strength", type=float, default=0.1, help="Standard deviation of the uniform noise added to the augmented data (default: 0.1)")

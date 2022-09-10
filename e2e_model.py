@@ -16,8 +16,6 @@ from tqdm import tqdm
 
 para = None
 
-np.set_printoptions(threshold=sys.maxsize, suppress=True)
-
 def getModelForecaster(lr=0.001, wl_sample_weight=0.008):
   x = Input(shape=(None, 11))
   x1 = Dense(256, activation='relu')(x)
@@ -143,6 +141,7 @@ def generateSingleOutput(forecaster, extrapolator, folder):
 
 
 def main(args):
+  print("Generating output...")
   global para
 
   forecaster = getModelForecaster()
@@ -156,12 +155,8 @@ def main(args):
     shutil.rmtree(args.output_path)
   os.mkdir(args.output_path)
 
-  # coords = 10*(pd.read_csv(f"{args.test_path}/location.csv", \
-  #                          usecols=["longitude", "latitude"]).to_numpy() - np.array([105.8, 21]))
   para = np.load("paras/forecaster.npz")
-  # stations = os.listdir(f"{args.test_path}/input/1")
 
-  # print(coords)
   for i in tqdm(range(89)):
     y, _ = generateSingleOutput(forecaster, extrapolator, parentFolder % (i+1))
     os.mkdir(f"{args.output_path}/{i+1}")
@@ -175,12 +170,12 @@ def main(args):
     os.remove("prediction.zip")
 
   shutil.make_archive("prediction", "zip", args.output_path)
-  # shutil.rmtree(args.output_path)
+  shutil.rmtree(args.output_path)
 
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
-  parser.add_argument("--test-path", type=str, default="./data/public-test", help="Path of the testing data folder (default: public-test folder in the same location of this file)")
+  parser.add_argument("--test-path", type=str, default="./test", help="Path of the testing data folder (default: ./test)")
   parser.add_argument("--output-path", type=str, default="result", help="Path to the temporary output folder (do not make it `.`, `..` or something like that. You know what would happen) (default: result/)")
   args = parser.parse_args()
   main(args)
