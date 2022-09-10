@@ -2,8 +2,8 @@
 
 ### Docker:
 
-Load docker image: `docker load -i submission.tar`
-Run docker image: `docker run -it --name aqi_submit -v /app aqi_submit /bin/bash`
+- Load docker image: `docker load -i submission.tar`
+- Run docker image: `docker run -it --name aqi_submit -v /app aqi_submit /bin/bash`
 
 ### Data:
 - Folder chứa data dùng để train đặt trong folder "train" cùng folder với file này. Format folder như dữ liệu đã công bố:
