@@ -60,7 +60,6 @@ class Generator(Sequence):
 
 def generateData(trainDataFolder, drop=[]):
   loc_input = pd.read_csv(f"{trainDataFolder}/air/location.csv", index_col=0)
-  # loc_output = pd.read_csv(f"{trainDataFolder}/location_output.csv", index_col=0)
   files = os.listdir(f"{trainDataFolder}/air")
   filesId = [name[:8] for name in files]
   stations = []
@@ -113,12 +112,12 @@ def main(args):
   print("--------------------------------------------------------")
   print("Initializing data...")
   datapieces, coords = generateData(args.train_path, drop=[])
-  trainGen = Generator(datapieces, coords, 100000, args.batch_size)
+  trainGen = Generator(datapieces, coords, args.training_sample, args.batch_size)
   valGen = Generator(datapieces, coords, 100, args.batch_size)
   testGen = Generator(datapieces, coords, 100, args.batch_size)
   print("Training...")
   model = getModel(lr=args.learning_rate)
-  model.fit(trainGen, epochs=args.epochs, validation_data=valGen, validation_steps=len(valGen))
+  model.fit(trainGen, epochs=1, validation_data=valGen, validation_steps=len(valGen))
 
   if not os.path.exists("weights"):
     os.mkdir("weights")
@@ -132,9 +131,8 @@ def main(args):
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument("--train-path", type=str, default="./train", help="Path of the training data folder (default: ./train)")
-  parser.add_argument("--test-rate", type=float, default=0.1, help="Ratio of the test dataset for evaluating (default: 0.1)")
   parser.add_argument("--learning-rate", type=float, default=0.001, help="Learning rate of the forecaster (default: 0.001)")
-  parser.add_argument("--epochs", type=int, default=3, help="Number of epochs to train(default: 3)")
+  parser.add_argument("--training-sample", type=int, default=300000, help="Number of sample to train the model (default: 300000)")
   parser.add_argument("--batch-size", type=int, default=128, help="Batch size for a single training step (default: 128)")
   args = parser.parse_args()
   main(args)
